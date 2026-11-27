@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>♻️ Polystyrène Cergy-Herblay</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♻️</text></svg>">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, Roboto, Arial, sans-serif; background: #f2f5f9; color: #1d2733; }
+  .wrap { max-width: 440px; margin: 0 auto; padding: 20px 16px 32px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #5b6878; font-size: 14px; margin-bottom: 18px; }
+  .card { background: #fff; border-radius: 16px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 14px; }
+  .msg { font-size: 18px; font-weight: 600; text-align: center; padding: 14px; border-radius: 12px; margin-bottom: 14px; display: none; }
+  .msg.ok { display: block; background: #e3f5e8; color: #17692e; }
+  .msg.ko { display: block; background: #fde8e8; color: #a32020; }
+  .msg.wait { display: block; background: #e8eef9; color: #1a3d7c; }
+  .msg.truck { display: block; background: #fff3cd; color: #7a5600; }
+  .big { font-size: 44px; font-weight: 800; text-align: center; color: #1a3d7c; }
+  .big small { font-size: 20px; color: #8391a3; font-weight: 600; }
+  .bar { height: 14px; background: #e4e9f0; border-radius: 7px; overflow: hidden; margin: 10px 0 14px; }
+  .bar div { height: 100%; background: linear-gradient(90deg, #2e7d32, #66bb6a); width: 0; transition: width .5s; }
+  .bar div.warn { background: linear-gradient(90deg, #ef6c00, #ffa726); }
+  .row { display: flex; justify-content: space-between; font-size: 16px; padding: 6px 2px; border-top: 1px solid #eef1f5; }
+  .row b { font-size: 18px; }
+  .mag { font-weight: 700; margin: 4px 0 8px; }
+  .btns { display: flex; gap: 8px; margin-bottom: 14px; }
+  button { flex: 1; border: 0; border-radius: 12px; padding: 14px 6px; font-size: 16px; font-weight: 700; cursor: pointer; }
+  .add { background: #1a3d7c; color: #fff; }
+  .add2 { background: #3b62a8; color: #fff; }
+  .undo { background: #e4e9f0; color: #1d2733; flex: .8; }
+  button:disabled { opacity: .5; }
+  .saisie { display: flex; gap: 8px; align-items: stretch; margin-bottom: 10px; }
+  .saisie input { width: 96px; font-size: 26px; font-weight: 800; text-align: center; border: 2px solid #c9d3e0; border-radius: 12px; padding: 8px; color: #1a3d7c; }
+  .saisie input:focus { outline: none; border-color: #1a3d7c; }
+  .step { flex: 0 0 52px; background: #e4e9f0; color: #1d2733; font-size: 24px; }
+  .hint { color: #5b6878; font-size: 13px; margin-top: 2px; }
+  .card.focus { box-shadow: 0 0 0 3px #1a3d7c33; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>♻️ Polystyrène</h1>
+  <div class="sub">Electro Dépôt Cergy &amp; Herblay — ramasse à <span id="seuil"></span> sacs</div>
+
+  <div id="msg" class="msg"></div>
+
+  <div class="card">
+    <div class="big"><span id="total">0</span><small> / <span id="seuil2"></span></small></div>
+    <div class="bar"><div id="jauge"></div></div>
+    <div id="detail"></div>
+  </div>
+
+  <div class="card" id="boutons"></div>
+
+  <div class="card" id="carteSaisie">
+    <div class="mag">🔢 Saisir un nombre de sacs</div>
+    <div class="saisie">
+      <button class="step" onclick="pas(-1)">−</button>
+      <input id="nb" type="number" inputmode="numeric" min="1" max="50" value="1">
+      <button class="step" onclick="pas(1)">+</button>
+    </div>
+    <div class="btns" id="btnsSaisie"></div>
+    <div class="btns" id="btnsRetrait"></div>
+    <div class="hint">Erreur de saisie ? « Retirer » enlève ce nombre de sacs.</div>
+  </div>
+</div>
+
+<script>
+  const API = 'https://script.google.com/macros/s/AKfycbziKZbrZIM0bbMOYTJL8O9Q61LrNq0iZnx7I7-70UJOu2Oq5ZT-K7Y2d7FyjiO9F-ozhg/exec';
+  const P = new URLSearchParams(location.search);
+  const MAGASINS = ['Cergy', 'Herblay'];
+  const MAGASIN = MAGASINS.indexOf(P.get('m')) >= 0 ? P.get('m') : '';
+  const N = [1, 2, 5, -1].indexOf(Number(P.get('n'))) >= 0 ? Number(P.get('n')) : 0;
+
+  function appel(params) {
+    return fetch(API + '?' + new URLSearchParams(params), { credentials: 'omit' })
+      .then(r => r.json())
+      .then(d => { if (d.erreur) throw new Error(d.erreur); return d; });
+  }
+  let busy = false;
+
+  function afficher(e) {
+    document.getElementById('seuil').textContent = e.seuil;
+    document.getElementById('seuil2').textContent = e.seuil;
+    document.getElementById('total').textContent = e.total;
+    const j = document.getElementById('jauge');
+    j.style.width = Math.min(100, e.total / e.seuil * 100) + '%';
+    j.className = e.total >= e.seuil * 0.75 ? 'warn' : '';
+    document.getElementById('detail').innerHTML = e.detail
+      .map(d => '<div class="row"><span>' + d.magasin + '</span><b>' + d.sacs + '</b></div>').join('');
+  }
+
+  function message(texte, classe) {
+    const m = document.getElementById('msg');
+    m.textContent = texte; m.className = 'msg ' + classe;
+  }
+
+  function ajouter(magasin, n) {
+    if (busy) return;
+    busy = true;
+    document.querySelectorAll('button').forEach(b => b.disabled = true);
+    message('Enregistrement…', 'wait');
+    appel({ api: 'ajouter', m: magasin, n: n })
+      .then(r => {
+        busy = false;
+        document.querySelectorAll('button').forEach(b => b.disabled = false);
+        afficher(r);
+        try { sessionStorage.setItem('fait_' + magasin + '_' + n, Date.now()); } catch (e) {}
+        if (r.ramasse) message('🚚 ' + r.totalAvant + ' sacs : ramasse demandée à La Tête dans les Nuages ! Compteur remis à 0.', 'truck');
+        else message((n > 0 ? '✅ Compté : ' + magasin + ' +' + n : '↩️ Corrigé : ' + magasin + ' ' + n) +
+          ' — total ' + r.total + '/' + r.seuil, 'ok');
+      })
+      .catch(err => {
+        busy = false;
+        document.querySelectorAll('button').forEach(b => b.disabled = false);
+        message('❌ ' + (err.message || 'Connexion impossible, réessaie'), 'ko');
+      });
+  }
+
+  // Boutons
+  document.getElementById('boutons').innerHTML = MAGASINS.map(m =>
+    '<div class="mag">' + m + '</div><div class="btns">' +
+    '<button class="add" onclick="ajouter(\'' + m + '\',1)">+1</button>' +
+    '<button class="add2" onclick="ajouter(\'' + m + '\',2)">+2</button>' +
+    '<button class="undo" onclick="ajouter(\'' + m + '\',-1)">↩️ −1</button></div>'
+  ).join('');
+
+  // Saisie libre
+  const SAISIE = P.get('saisie') === '1';
+  function valeur() { return Math.max(1, Math.min(50, parseInt(document.getElementById('nb').value, 10) || 0)); }
+  function pas(d) { document.getElementById('nb').value = Math.max(1, Math.min(50, valeur() + d)); }
+  document.getElementById('btnsSaisie').innerHTML =
+    MAGASINS.map(m => '<button class="add" onclick="ajouter(\'' + m + '\', valeur())">➕ ' + m + '</button>').join('');
+  document.getElementById('btnsRetrait').innerHTML =
+    MAGASINS.map(m => '<button class="undo" onclick="ajouter(\'' + m + '\', -valeur())">↩️ Retirer ' + m + '</button>').join('');
+  if (SAISIE) {
+    const c = document.getElementById('carteSaisie');
+    c.classList.add('focus');
+    c.parentNode.insertBefore(c, document.getElementById('boutons'));
+    const nb = document.getElementById('nb'); nb.focus(); nb.select();
+  }
+
+  afficher({ total: 0, seuil: 20, detail: MAGASINS.map(m => ({ magasin: m, sacs: 0 })) });
+
+  // Ouvert depuis un bouton du Chat : on compte tout de suite
+  // (protection contre le double comptage si la page est rechargée)
+  let recent = 0;
+  if (MAGASIN && N) {
+    try { recent = Number(sessionStorage.getItem('fait_' + MAGASIN + '_' + N) || 0); } catch (e) {}
+  }
+  if (MAGASIN && N && Date.now() - recent >= 5 * 60 * 1000) {
+    ajouter(MAGASIN, N);
+  } else {
+    if (MAGASIN && N) message('Déjà compté. Pour en ajouter encore, utilise les boutons ci-dessous.', 'wait');
+    appel({ api: 'etat' }).then(afficher).catch(() => message('❌ Connexion impossible, réessaie', 'ko'));
+  }
+</script>
+</body>
+</html>
